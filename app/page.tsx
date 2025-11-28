@@ -48,58 +48,40 @@ function calculatePriceComparison(
     return {
       wsPrice,
       backendPrice: null,
-      backendPrice24h: null,
-      backendChange: null,
-      backendChangePercent: null,
       priceDiff: null,
       priceDiffPercent: null,
       durationFromLatest: null,
     };
   }
 
-  // Index 0 is the latest/most recent price (ordered DESC by created_at)
-  const latestBackendPrice = backendData.prices[0]?.price || null;
-  const latestBackendPriceTime = backendData.prices[0]?.created_at
-    ? new Date(backendData.prices[0].created_at).getTime()
+  // Last index is the latest/most recent price (ordered ASC by created_at)
+  const oldestPriceIndex = backendData.prices.length - 1;
+
+  const oldestBackendPrice =
+    backendData.prices[oldestPriceIndex]?.price || null;
+  const oldestBackendPriceTime = backendData.prices[oldestPriceIndex]
+    ?.created_at
+    ? new Date(backendData.prices[oldestPriceIndex].created_at).getTime()
     : null;
 
-  // Calculate duration from now to index 0's created_at
+  // Calculate duration from now to latest price's created_at
   const durationFromLatest =
-    latestBackendPriceTime !== null
-      ? Date.now() - latestBackendPriceTime
+    oldestBackendPriceTime !== null
+      ? Date.now() - oldestBackendPriceTime
       : null;
 
-  // Last index is the oldest price (24h ago or closest to it)
-  const oldestPriceIndex = backendData.prices.length - 1;
-  const backendPrice24h =
-    oldestPriceIndex >= 0
-      ? backendData.prices[oldestPriceIndex]?.price || null
-      : null;
-
-  // Calculate backend change
-  const backendChange =
-    latestBackendPrice && backendPrice24h
-      ? latestBackendPrice - backendPrice24h
-      : null;
-  const backendChangePercent =
-    latestBackendPrice && backendPrice24h && backendPrice24h > 0
-      ? (backendChange! / backendPrice24h) * 100
-      : null;
-
-  // Calculate difference between WS and backend
+  // Calculate difference between WS and oldest backend price
   const priceDiff =
-    latestBackendPrice !== null ? wsPrice - latestBackendPrice : null;
+    oldestBackendPrice !== null ? wsPrice - oldestBackendPrice : null;
+
   const priceDiffPercent =
-    latestBackendPrice !== null && latestBackendPrice > 0
-      ? (priceDiff! / latestBackendPrice) * 100
+    oldestBackendPrice !== null && oldestBackendPrice > 0
+      ? (priceDiff! / oldestBackendPrice) * 100
       : null;
 
   return {
     wsPrice,
-    backendPrice: latestBackendPrice,
-    backendPrice24h,
-    backendChange,
-    backendChangePercent,
+    backendPrice: oldestBackendPrice,
     priceDiff,
     priceDiffPercent,
     durationFromLatest,
@@ -118,15 +100,17 @@ function PriceCard({
 
   const hasData = wsPriceData && wsPriceData.price > 0;
 
-  // Get backend 24h change
   const comparison = hasData
     ? calculatePriceComparison(symbol, wsPriceData!.price, backendData)
     : null;
 
-  const backendChangePercent = comparison?.backendChangePercent ?? null;
+  const priceDiffPercent = comparison?.priceDiffPercent ?? null;
+  const priceDiff = comparison?.priceDiff ?? null;
   const durationFromLatest = comparison?.durationFromLatest ?? null;
-  const isPositive = backendChangePercent !== null && backendChangePercent >= 0;
-  const isNegative = backendChangePercent !== null && backendChangePercent < 0;
+  const isPositive = priceDiffPercent !== null && priceDiffPercent >= 0;
+  const isNegative = priceDiffPercent !== null && priceDiffPercent < 0;
+  const diffIsPositive = priceDiff !== null && priceDiff > 0;
+  const diffIsNegative = priceDiff !== null && priceDiff < 0;
 
   // Format duration for display (e.g., "2h", "5m", "24h")
   const durationLabel =
@@ -136,7 +120,7 @@ function PriceCard({
     <div className="bg-zinc-900/50 backdrop-blur-sm rounded-lg border border-zinc-800 p-4 hover:border-[#4EB345]/40 transition-all duration-300">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-semibold text-zinc-400">{symbol}</span>
-        {backendChangePercent !== null && (
+        {priceDiffPercent !== null && (
           <span
             className={`text-[10px] font-medium px-2 py-1 rounded ${
               isPositive
@@ -147,11 +131,12 @@ function PriceCard({
             }`}
           >
             <NumericFormat
-              value={backendChangePercent}
+              value={priceDiffPercent}
               displayType="text"
               decimalScale={4}
               fixedDecimalScale
               prefix={isPositive ? "+" : ""}
+              suffix="%"
             />
             <span className="ml-1 text-[10px] opacity-75">{durationLabel}</span>
           </span>
@@ -174,22 +159,24 @@ function PriceCard({
           <span className="text-base font-bold text-zinc-50">—</span>
         )}
       </div>
-      {backendChangePercent !== null && (
+      {priceDiff !== null && priceDiff !== 0 && (
         <div
           className={`text-[10px] mt-1 font-mono ${
-            isPositive
+            diffIsPositive
               ? "text-green-400"
-              : isNegative
+              : diffIsNegative
               ? "text-red-400"
               : "text-zinc-500"
           }`}
         >
+          {diffIsPositive ? "+" : diffIsNegative ? "-" : ""}
           <NumericFormat
-            value={backendChangePercent}
+            value={Math.abs(priceDiff)}
             displayType="text"
-            decimalScale={4}
+            prefix="$"
+            allowNegative={false}
+            decimalScale={Math.abs(priceDiff) > 1 ? 2 : 4}
             fixedDecimalScale
-            prefix={isPositive ? "+" : ""}
           />
         </div>
       )}
