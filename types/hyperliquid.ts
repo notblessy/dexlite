@@ -37,3 +37,24 @@ export interface PriceHistoryEntry {
 export interface AllMidsData {
   mids: Record<string, string>;
 }
+
+export interface BackendPriceData {
+  coin: string;
+  prices: Array<{
+    coin: string;
+    price: number;
+    created_at: string;
+  }>;
+  count: number;
+}
+
+export interface PriceComparison {
+  wsPrice: number; // WebSocket price
+  backendPrice: number | null; // Latest backend price (index 0)
+  backendPrice24h: number | null; // Backend price from 24h ago (last index)
+  backendChange: number | null;
+  backendChangePercent: number | null;
+  priceDiff: number | null; // Difference between WS and backend
+  priceDiffPercent: number | null;
+  durationFromLatest: number | null; // Duration in ms from now to index 0's created_at
+}

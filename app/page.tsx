@@ -10,16 +10,192 @@ import {
 } from "react";
 import { NumericFormat } from "react-number-format";
 import { useWebsocket } from "@/hooks/useWebsocket";
+import { usePriceComparison } from "@/hooks/usePriceComparison";
 import type {
   HyperliquidTrade,
   HyperliquidBlock,
   CoinPrice,
   PriceHistoryEntry,
+  PriceComparison,
 } from "@/types/hyperliquid";
 
 const WS_URL = "wss://api.hyperliquid.xyz/ws";
 const MAX_ITEMS = 10;
 const TRACKED_COINS = ["BTC", "ETH", "SOL", "ARB", "AVAX"];
+
+// Helper function to format duration in human-readable format
+function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d`;
+  if (hours > 0) return `${hours}h`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
+// Helper function to calculate price comparison
+function calculatePriceComparison(
+  symbol: string,
+  wsPrice: number | undefined,
+  backendData: ReturnType<typeof usePriceComparison>["data"]
+): PriceComparison | null {
+  if (!wsPrice || wsPrice <= 0) return null;
+
+  if (!backendData || !backendData.prices || backendData.prices.length === 0) {
+    return {
+      wsPrice,
+      backendPrice: null,
+      backendPrice24h: null,
+      backendChange: null,
+      backendChangePercent: null,
+      priceDiff: null,
+      priceDiffPercent: null,
+      durationFromLatest: null,
+    };
+  }
+
+  // Index 0 is the latest/most recent price (ordered DESC by created_at)
+  const latestBackendPrice = backendData.prices[0]?.price || null;
+  const latestBackendPriceTime = backendData.prices[0]?.created_at
+    ? new Date(backendData.prices[0].created_at).getTime()
+    : null;
+
+  // Calculate duration from now to index 0's created_at
+  const durationFromLatest =
+    latestBackendPriceTime !== null
+      ? Date.now() - latestBackendPriceTime
+      : null;
+
+  // Last index is the oldest price (24h ago or closest to it)
+  const oldestPriceIndex = backendData.prices.length - 1;
+  const backendPrice24h =
+    oldestPriceIndex >= 0
+      ? backendData.prices[oldestPriceIndex]?.price || null
+      : null;
+
+  // Calculate backend change
+  const backendChange =
+    latestBackendPrice && backendPrice24h
+      ? latestBackendPrice - backendPrice24h
+      : null;
+  const backendChangePercent =
+    latestBackendPrice && backendPrice24h && backendPrice24h > 0
+      ? (backendChange! / backendPrice24h) * 100
+      : null;
+
+  // Calculate difference between WS and backend
+  const priceDiff =
+    latestBackendPrice !== null ? wsPrice - latestBackendPrice : null;
+  const priceDiffPercent =
+    latestBackendPrice !== null && latestBackendPrice > 0
+      ? (priceDiff! / latestBackendPrice) * 100
+      : null;
+
+  return {
+    wsPrice,
+    backendPrice: latestBackendPrice,
+    backendPrice24h,
+    backendChange,
+    backendChangePercent,
+    priceDiff,
+    priceDiffPercent,
+    durationFromLatest,
+  };
+}
+
+// PriceCard component for displaying price
+function PriceCard({
+  symbol,
+  wsPriceData,
+}: {
+  symbol: string;
+  wsPriceData: CoinPrice | undefined;
+}) {
+  const { data: backendData } = usePriceComparison(symbol);
+
+  const hasData = wsPriceData && wsPriceData.price > 0;
+
+  // Get backend 24h change
+  const comparison = hasData
+    ? calculatePriceComparison(symbol, wsPriceData!.price, backendData)
+    : null;
+
+  const backendChangePercent = comparison?.backendChangePercent ?? null;
+  const durationFromLatest = comparison?.durationFromLatest ?? null;
+  const isPositive = backendChangePercent !== null && backendChangePercent >= 0;
+  const isNegative = backendChangePercent !== null && backendChangePercent < 0;
+
+  // Format duration for display (e.g., "2h", "5m", "24h")
+  const durationLabel =
+    durationFromLatest !== null ? formatDuration(durationFromLatest) : "24h";
+
+  return (
+    <div className="bg-zinc-900/50 backdrop-blur-sm rounded-lg border border-zinc-800 p-4 hover:border-[#4EB345]/40 transition-all duration-300">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-zinc-400">{symbol}</span>
+        {backendChangePercent !== null && (
+          <span
+            className={`text-[10px] font-medium px-2 py-1 rounded ${
+              isPositive
+                ? "bg-green-500/20 text-green-400"
+                : isNegative
+                ? "bg-red-500/20 text-red-400"
+                : "bg-zinc-800 text-zinc-400"
+            }`}
+          >
+            <NumericFormat
+              value={backendChangePercent}
+              displayType="text"
+              decimalScale={4}
+              fixedDecimalScale
+              prefix={isPositive ? "+" : ""}
+            />
+            <span className="ml-1 text-[10px] opacity-75">{durationLabel}</span>
+          </span>
+        )}
+      </div>
+      <div className="flex items-baseline gap-2 mb-1">
+        {hasData ? (
+          <NumericFormat
+            value={wsPriceData!.price}
+            displayType="text"
+            prefix="$"
+            thousandSeparator=","
+            decimalScale={wsPriceData!.price > 1000 ? 0 : 2}
+            fixedDecimalScale={wsPriceData!.price <= 1000}
+            className={`text-base font-bold text-white ${
+              isPositive ? "neon-glow-green" : ""
+            }`}
+          />
+        ) : (
+          <span className="text-base font-bold text-zinc-50">—</span>
+        )}
+      </div>
+      {backendChangePercent !== null && (
+        <div
+          className={`text-[10px] mt-1 font-mono ${
+            isPositive
+              ? "text-green-400"
+              : isNegative
+              ? "text-red-400"
+              : "text-zinc-500"
+          }`}
+        >
+          <NumericFormat
+            value={backendChangePercent}
+            displayType="text"
+            decimalScale={4}
+            fixedDecimalScale
+            prefix={isPositive ? "+" : ""}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<"transactions" | "blocks">(
@@ -461,79 +637,12 @@ export default function Home() {
         {/* Price Statistics Cards - Compact Grid */}
         <div className="mb-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           {TRACKED_COINS.map((symbol) => {
-            const priceData = coinPrices[symbol];
-            const hasData = priceData && priceData.price > 0;
-            const isPositive = hasData && priceData.change >= 0;
-            const isNegative = hasData && priceData.change < 0;
-
             return (
-              <div
+              <PriceCard
                 key={symbol}
-                className="bg-zinc-900/50 backdrop-blur-sm rounded-lg border border-zinc-800 p-4 hover:border-[#4EB345]/40 transition-all duration-300"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-zinc-400">
-                    {symbol}
-                  </span>
-                  {hasData && (
-                    <span
-                      className={`text-[10px] font-medium px-2 py-1 rounded ${
-                        isPositive
-                          ? "bg-green-500/20 text-green-400"
-                          : isNegative
-                          ? "bg-red-500/20 text-red-400"
-                          : "bg-zinc-800 text-zinc-400"
-                      }`}
-                    >
-                      <NumericFormat
-                        value={priceData.changePercent}
-                        displayType="text"
-                        decimalScale={2}
-                        fixedDecimalScale
-                        prefix={isPositive ? "+" : ""}
-                        suffix="%"
-                      />
-                      <span className="ml-1 text-[10px] opacity-75">24h</span>
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-baseline gap-2">
-                  {hasData ? (
-                    <NumericFormat
-                      value={priceData.price}
-                      displayType="text"
-                      prefix="$"
-                      thousandSeparator=","
-                      decimalScale={priceData.price > 1000 ? 0 : 2}
-                      fixedDecimalScale={priceData.price <= 1000}
-                      className={`text-base font-bold text-white ${
-                        isPositive ? "neon-glow-green" : ""
-                      }`}
-                    />
-                  ) : (
-                    <span className="text-base font-bold text-zinc-50">—</span>
-                  )}
-                </div>
-                {hasData && (
-                  <div
-                    className={`text-[10px] mt-1 font-mono ${
-                      isPositive
-                        ? "text-green-400"
-                        : isNegative
-                        ? "text-red-400"
-                        : "text-zinc-500"
-                    }`}
-                  >
-                    <NumericFormat
-                      value={priceData.change}
-                      displayType="text"
-                      prefix={isPositive ? "+" : ""}
-                      decimalScale={priceData.price > 1000 ? 2 : 4}
-                      fixedDecimalScale
-                    />
-                  </div>
-                )}
-              </div>
+                symbol={symbol}
+                wsPriceData={coinPrices[symbol]}
+              />
             );
           })}
         </div>

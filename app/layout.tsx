@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Quantico } from "next/font/google";
 import "./globals.css";
+import { QueryProvider } from "@/components/QueryProvider";
 
 const quantico = Quantico({
   variable: "--font-quantico",
@@ -34,7 +35,7 @@ export default function RootLayout({
         className={`${quantico.variable} antialiased`}
         style={{ fontFamily: 'var(--font-quantico)' }}
       >
-        {children}
+        <QueryProvider>{children}</QueryProvider>
       </body>
     </html>
   );
