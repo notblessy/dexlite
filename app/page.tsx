@@ -30,6 +30,8 @@ export default function Home() {
   const [coinPrices, setCoinPrices] = useState<Record<string, CoinPrice>>({});
   const [stripeToggle, setStripeToggle] = useState(false);
   const [tps, setTps] = useState(0);
+  const [isIndexerReady, setIsIndexerReady] = useState(false);
+  const [showLoading, setShowLoading] = useState(true);
   const subscriptionsRef = useRef<Set<string>>(new Set());
   const priceHistoryRef = useRef<Record<string, PriceHistoryEntry[]>>({});
   const setStripeToggleRef = useRef<Dispatch<SetStateAction<boolean>> | null>(
@@ -38,6 +40,9 @@ export default function Home() {
   const transactionTimestampsRef = useRef<number[]>([]);
   const subscriptionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasSubscribedRef = useRef(false);
+  const indexerReadyRef = useRef(false);
+  const hasReceivedTransactionsRef = useRef(false);
+  const hasReceivedPricesRef = useRef(false);
 
   // Keep ref updated with latest setter
   useEffect(() => {
@@ -80,6 +85,15 @@ export default function Home() {
 
         setTransactions((prev) => {
           const updated = [...trades, ...prev].slice(0, MAX_ITEMS);
+          // Mark that we've received transactions
+          if (!hasReceivedTransactionsRef.current && updated.length > 0) {
+            hasReceivedTransactionsRef.current = true;
+            // Check if both transactions and prices are ready
+            if (hasReceivedPricesRef.current && !indexerReadyRef.current) {
+              indexerReadyRef.current = true;
+              setIsIndexerReady(true);
+            }
+          }
           return updated;
         });
         // Toggle stripe color on update
@@ -97,10 +111,12 @@ export default function Home() {
 
         setCoinPrices((prev) => {
           const updated: Record<string, CoinPrice> = { ...prev };
+          let hasNewPriceData = false;
 
           Object.entries(mids).forEach(([coin, priceStr]) => {
             if (TRACKED_COINS.includes(coin)) {
               const currentPrice = parseFloat(priceStr);
+              hasNewPriceData = true;
 
               // Initialize price history if it doesn't exist
               if (!priceHistoryRef.current[coin]) {
@@ -146,6 +162,19 @@ export default function Home() {
               };
             }
           });
+
+          // Mark that we've received prices
+          if (!hasReceivedPricesRef.current && hasNewPriceData) {
+            hasReceivedPricesRef.current = true;
+            // Check if both transactions and prices are ready
+            if (
+              hasReceivedTransactionsRef.current &&
+              !indexerReadyRef.current
+            ) {
+              indexerReadyRef.current = true;
+              setIsIndexerReady(true);
+            }
+          }
 
           return updated;
         });
@@ -288,7 +317,8 @@ export default function Home() {
               txCount: Math.floor(Math.random() * 50) + 10,
             };
             blockHeight = newBlock.height;
-            return [newBlock, ...prev].slice(0, MAX_ITEMS);
+            const updated = [newBlock, ...prev].slice(0, MAX_ITEMS);
+            return updated;
           });
           // Toggle stripe color on block update
           setStripeToggleRef.current?.((prev) => !prev);
@@ -329,6 +359,33 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-black text-white relative">
+      {/* Fullscreen Loading Screen */}
+      {showLoading && (
+        <div
+          className={`fixed inset-0 bg-black z-50 flex items-center justify-center transition-opacity duration-500 ${
+            isIndexerReady ? "opacity-0" : "opacity-100"
+          }`}
+          onTransitionEnd={() => {
+            if (isIndexerReady) {
+              setShowLoading(false);
+            }
+          }}
+        >
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative w-16 h-16">
+              <div className="absolute inset-0 border-4 border-zinc-800 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-[#4EB345] border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <p
+              className="text-zinc-400 text-sm"
+              style={{ fontFamily: "var(--font-quantico)" }}
+            >
+              Initializing indexer...
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Animated background pattern */}
       <div className="neon-bg"></div>
 
