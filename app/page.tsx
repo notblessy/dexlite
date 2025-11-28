@@ -348,7 +348,7 @@ export default function Home() {
                 className="text-zinc-400 text-xs"
                 style={{ fontFamily: "var(--font-quantico)" }}
               >
-                Real-time Hyperliquid transaction indexer by keep_going
+                Real-time Hyperliquid transaction indexer by keep_going.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -428,7 +428,6 @@ export default function Home() {
                           : "bg-zinc-800 text-zinc-400"
                       }`}
                     >
-                      {isPositive ? "+" : ""}
                       <NumericFormat
                         value={priceData.changePercent}
                         displayType="text"
